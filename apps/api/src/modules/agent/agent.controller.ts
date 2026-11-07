@@ -21,8 +21,44 @@ export class AgentController {
     @Param('id') id: string,
     @Body('approved') approved: boolean,
   ) {
-    this.gateway.handleApproval({} as any, { taskId: id, approved });
+    this.gateway.handleDecision({
+      taskId: id,
+      action: approved ? 'APPROVE' : 'REJECT',
+    });
     return { success: true, taskId: id, approved };
+  }
+
+  @Post(':id/reject')
+  async rejectTask(@Param('id') id: string) {
+    this.gateway.handleDecision({ taskId: id, action: 'REJECT' });
+    return { success: true, taskId: id, action: 'REJECT' };
+  }
+
+  @Post(':id/refine')
+  async refineTask(
+    @Param('id') id: string,
+    @Body('feedback') feedback: string,
+  ) {
+    this.gateway.handleDecision({ taskId: id, action: 'REFINE', feedback });
+    return { success: true, taskId: id, action: 'REFINE', feedback };
+  }
+
+  @Get('active')
+  async getActiveTasks() {
+    try {
+      return await this.prisma.taskExecution.findMany({
+        where: {
+          status: {
+            notIn: ['COMPLETED', 'FAILED', 'REJECTED'],
+          },
+          isArchived: false,
+        },
+        orderBy: { createdAt: 'desc' },
+        include: { repository: true },
+      });
+    } catch {
+      return [];
+    }
   }
 
   @Get('history')
