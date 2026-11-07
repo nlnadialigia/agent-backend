@@ -1,0 +1,64 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+model RepositoryProfile {
+  id              String         @id @default(uuid())
+  name            String         @unique
+  localPath       String
+  remoteUrl       String?
+  lastAnalyzedAt  DateTime       @default(now())
+  lastCommitHash  String
+  
+  // Metadados técnicos identificados
+  framework       String         // ex.: NestJS, Fastify, Express
+  languageVersion String         // ex.: Node 20 / TypeScript 5.x
+  packageManager  String         // ex.: pnpm
+  orm             String?        // ex.: Prisma, TypeORM, Drizzle, Nenhum
+  validationLib   String?        // ex.: Zod, Class-Validator, Yup
+  testFramework   String?        // ex.: Jest, Vitest
+  
+  // Estrutura e convenções serializadas em JSON
+  directoryLayout Json           // Mapeamento de pastas principais
+  codingStandards Json           // Padrões de código
+  rawDependencies Json           // Dependências extraídas do package.json
+  
+  tasks           TaskExecution[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model TaskExecution {
+  id              String            @id @default(uuid())
+  cardId          String
+  cardTitle       String
+  cardDescription String?
+  repositoryId    String
+  repository      RepositoryProfile @relation(fields: [repositoryId], references: [id])
+  
+  status          TaskStatus        @default(PENDING_DIAGNOSTIC)
+  diagnosticPlan  String?           @db.Text
+  branchName      String?
+  pullRequestUrl  String?
+  executionLogs   Json?             // Array de logs da execução
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+enum TaskStatus {
+  PENDING_DIAGNOSTIC
+  WAITING_APPROVAL
+  IMPLEMENTING
+  RUNNING_TESTS
+  SELF_HEALING
+  COMPLETED
+  FAILED
+  REJECTED
+}

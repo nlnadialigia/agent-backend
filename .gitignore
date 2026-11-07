@@ -1,0 +1,35 @@
+# Node & Package Managers
+node_modules/
+.pnpm-store/
+dist/
+build/
+.next/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker volume data (se mapeado em pasta local)
+.data/
+postgres_data/
+
+# Prisma
+apps/api/prisma/migrations/dev.db*

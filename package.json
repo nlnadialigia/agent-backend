@@ -1,0 +1,21 @@
+{
+  "name": "agent-platform-monorepo",
+  "version": "1.0.0",
+  "license": "MIT",
+  "private": true,
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "dev:api": "pnpm --filter @agent/api dev",
+    "dev:web": "pnpm --filter @agent/web dev",
+    "build:api": "pnpm --filter @agent/api build",
+    "build:web": "pnpm --filter @agent/web build",
+    "db:migrate": "pnpm --filter @agent/api prisma:migrate",
+    "db:generate": "pnpm --filter @agent/api prisma:generate",
+    "db:studio": "pnpm --filter @agent/api prisma:studio",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
