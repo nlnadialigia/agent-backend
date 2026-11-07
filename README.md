@@ -59,13 +59,13 @@ O agente realiza o escaneamento determinístico do repositório vinculado à tar
 
 ## 📚 Documentação e Especificações
 
-- [spec_agent_backend.md](file:///home/nlnadialigia/agents/specs-backend/spec_agent_backend.md): Especificação técnica detalhada do agente backend.
-- [requisitos_instalacao_tokens.md](file:///home/nlnadialigia/agents/specs-backend/requisitos_instalacao_tokens.md): Guia de obtenção de credenciais, tokens e comandos de validação.
-- [roadmap_desenvolvimento.md](file:///home/nlnadialigia/agents/specs-backend/roadmap_desenvolvimento.md): Roteiro de fases e critérios de aceite.
-- [spec_web_app.md](file:///home/nlnadialigia/agents/instructions/spec_web_app.md): Especificação técnica da interface web e Docker Compose.
+- [spec_agent_backend.md](./specs-backend/spec_agent_backend.md): Especificação técnica detalhada do agente backend.
+- [requisitos_instalacao_tokens.md](./specs-backend/requisitos_instalacao_tokens.md): Guia de obtenção de credenciais, tokens e comandos de validação.
+- [roadmap_desenvolvimento.md](./specs-backend/roadmap_desenvolvimento.md): Roteiro de fases e critérios de aceite.
+- [spec_web_app.md](./instructions/spec_web_app.md): Especificação técnica da interface web e Docker Compose.
 
 ---
 
 ## 📄 Licença
 
-Este projeto está sob a licença [MIT](file:///home/nlnadialigia/agents/LICENSE). Consulte o arquivo [LICENSE](file:///home/nlnadialigia/agents/LICENSE) para mais detalhes.
+Este projeto está sob a licença [MIT](./LICENSE). Consulte o arquivo [LICENSE](./LICENSE) para mais detalhes.
