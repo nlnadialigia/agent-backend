@@ -21,25 +21,38 @@ import {
   Archive,
   ArchiveRestore,
   Eye,
-  RefreshCw
+  RefreshCw,
+  PlusCircle,
+  Cpu,
+  Zap,
+  ListOrdered,
+  ArrowRight,
+  Clock
 } from 'lucide-react';
 
 export function App() {
+  // Estados do formulário de criação
   const [cardId, setCardId] = useState('');
   const [customInstructions, setCustomInstructions] = useState('');
   const [selectedRepo, setSelectedRepo] = useState<string>('');
+  const [executionMode, setExecutionMode] = useState<'SEQUENTIAL' | 'CONCURRENT'>('SEQUENTIAL');
+
+  // Estados de dados e execução
   const [repositories, setRepositories] = useState<RepositoryData[]>([]);
+  const [activeTasks, setActiveTasks] = useState<any[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<string>('IDLE');
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [prUrl, setPrUrl] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+
+  // Estados gerais
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [scanningRepo, setScanningRepo] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
-  const [activeTab, setActiveTab] = useState<'agent' | 'repos' | 'history'>('agent');
+  const [activeTab, setActiveTab] = useState<'create' | 'execution' | 'repos' | 'history'>('create');
 
   // Conexão WebSocket
   useEffect(() => {
@@ -67,16 +80,22 @@ export function App() {
       if (data.metadata?.pullRequestUrl) {
         setPrUrl(data.metadata.pullRequestUrl);
       }
+      loadActiveTasks();
+      if (['COMPLETED', 'FAILED', 'REJECTED'].includes(data.status)) {
+        loadHistory();
+      }
     });
 
     socket.on('task:approval_required', (data: { taskId: string; diagnostic: string }) => {
       setCurrentTaskId(data.taskId);
       setDiagnostic(data.diagnostic);
       setTaskStatus('WAITING_APPROVAL');
+      loadActiveTasks();
     });
 
     loadRepositories();
     loadHistory();
+    loadActiveTasks();
 
     return () => {
       socket.disconnect();
@@ -89,7 +108,6 @@ export function App() {
       const diskRepos = res.data.availableOnDisk || [];
       const dbRepos = res.data.cachedInDatabase || [];
 
-      // Faz merge dos repositórios do disco com metadados do banco
       const merged: RepositoryData[] = diskRepos.map((item: any) => {
         const cached = dbRepos.find((db: any) => db.name === item.name);
         return {
@@ -111,6 +129,15 @@ export function App() {
       }
     } catch (err) {
       console.warn('Erro ao carregar repositórios:', err);
+    }
+  };
+
+  const loadActiveTasks = async () => {
+    try {
+      const res = await apiClient.get('/tasks/active');
+      setActiveTasks(res.data);
+    } catch (err) {
+      console.warn('Erro ao carregar tarefas ativas:', err);
     }
   };
 
@@ -136,6 +163,7 @@ export function App() {
     try {
       await apiClient.patch(`/tasks/${id}/archive`);
       await loadHistory();
+      await loadActiveTasks();
     } catch (err) {
       console.error('Erro ao arquivar tarefa:', err);
     }
@@ -145,6 +173,7 @@ export function App() {
     try {
       await apiClient.patch(`/tasks/${id}/restore`);
       await loadHistory();
+      await loadActiveTasks();
     } catch (err) {
       console.error('Erro ao restaurar tarefa:', err);
     }
@@ -165,9 +194,19 @@ export function App() {
         repoPath: selectedRepo,
         repoName: selectedRepoObj?.name,
         customInstructions: customInstructions.trim() || undefined,
+        executionMode,
       });
 
-      setCurrentTaskId(res.data.taskId);
+      const newTaskId = res.data.taskId;
+      setCurrentTaskId(newTaskId);
+
+      // Limpeza obrigatória do formulário (Issue #6)
+      setCardId('');
+      setCustomInstructions('');
+
+      // Recarrega tarefas ativas e redireciona para a aba de Execução
+      await loadActiveTasks();
+      setActiveTab('execution');
     } catch (err: any) {
       setLogs((prev) => [
         ...prev,
@@ -189,6 +228,7 @@ export function App() {
       await apiClient.post(`/tasks/${taskId}/approve`, { approved: true });
       setDiagnostic(null);
       setTaskStatus('IMPLEMENTING');
+      await loadActiveTasks();
     } catch (err: any) {
       console.error('Falha ao aprovar:', err);
     }
@@ -196,11 +236,21 @@ export function App() {
 
   const handleReject = async (taskId: string) => {
     try {
-      await apiClient.post(`/tasks/${taskId}/approve`, { approved: false });
+      await apiClient.post(`/tasks/${taskId}/reject`);
       setDiagnostic(null);
       setTaskStatus('REJECTED');
+      await loadActiveTasks();
+      await loadHistory();
     } catch (err: any) {
       console.error('Falha ao rejeitar:', err);
+    }
+  };
+
+  const handleRefine = async (taskId: string, feedback: string) => {
+    try {
+      await apiClient.post(`/tasks/${taskId}/refine`, { feedback });
+    } catch (err: any) {
+      console.error('Falha ao refinar diagnóstico:', err);
     }
   };
 
@@ -219,6 +269,9 @@ export function App() {
       setScanningRepo(null);
     }
   };
+
+  // Contagem de tarefas aguardando aprovação
+  const waitingApprovalCount = activeTasks.filter((t) => t.status === 'WAITING_APPROVAL').length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -239,39 +292,64 @@ export function App() {
             </div>
           </div>
 
-          {/* Navigation Tabs */}
+          {/* Navigation Tabs (4 Abas Dedicadas) */}
           <div className="flex items-center space-x-1 bg-slate-800/60 p-1 rounded-lg border border-slate-700/60">
             <button
-              onClick={() => setActiveTab('agent')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                activeTab === 'agent'
+              onClick={() => setActiveTab('create')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                activeTab === 'create'
                   ? 'bg-blue-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Executar Tarefa
+              <PlusCircle className="w-3.5 h-3.5" />
+              Inserir Tarefa
             </button>
+
+            <button
+              onClick={() => setActiveTab('execution')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all relative ${
+                activeTab === 'execution'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              Execução de Tarefa
+              {waitingApprovalCount > 0 && (
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute -top-0.5 -right-0.5" />
+              )}
+              {activeTasks.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-700 text-slate-200">
+                  {activeTasks.length}
+                </span>
+              )}
+            </button>
+
             <button
               onClick={() => setActiveTab('repos')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                 activeTab === 'repos'
                   ? 'bg-blue-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
+              <FolderGit2 className="w-3.5 h-3.5" />
               Repositórios ({repositories.length})
             </button>
+
             <button
               onClick={() => {
                 setActiveTab('history');
                 loadHistory();
               }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                 activeTab === 'history'
                   ? 'bg-blue-600 text-white shadow'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
+              <History className="w-3.5 h-3.5" />
               Histórico
             </button>
           </div>
@@ -295,24 +373,28 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl mx-auto px-6 py-6 w-full space-y-6">
-        {activeTab === 'agent' && (
+        {/* ========================================================================= */}
+        {/* ABA 1: INSERIR TAREFA */}
+        {/* ========================================================================= */}
+        {activeTab === 'create' && (
           <div className="space-y-6">
-            {/* Input Bar */}
+            {/* Card de Inserção */}
             <Card className="bg-slate-900/80 border-slate-700/80 shadow-2xl">
               <CardHeader className="pb-3 border-b border-slate-800">
                 <div className="flex items-center space-x-2">
                   <div className="p-1.5 bg-blue-500/20 text-blue-400 rounded-md">
-                    <Hash className="w-4 h-4" />
+                    <PlusCircle className="w-4 h-4" />
                   </div>
                   <div>
-                    <CardTitle className="text-sm font-bold text-white">Disparar Execução de Tarefa</CardTitle>
+                    <CardTitle className="text-sm font-bold text-white">Inserir Nova Tarefa na Fila</CardTitle>
                     <CardDescription className="text-xs text-slate-400">
-                      Informe o ID do card para o agente analisar os requisitos e estruturar a solução no repositório.
+                      Cadastre o ID do card e defina se a execução ocorrerá em sequência (fila) ou em paralelo.
                     </CardDescription>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="p-5 pt-4">
+
+              <CardContent className="p-5 pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                   <div className="md:col-span-3">
                     <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 mb-1.5">
@@ -326,10 +408,10 @@ export function App() {
                       onChange={(e) => setCardId(e.target.value)}
                       className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-inner"
                     />
-                    <p className="text-[10px] text-slate-400 mt-1">Número de identificação do card</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Identificador da tarefa</p>
                   </div>
 
-                  <div className="md:col-span-6">
+                  <div className="md:col-span-5">
                     <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 mb-1.5">
                       <FolderGit2 className="w-3.5 h-3.5 text-blue-400" />
                       Repositório Vinculado
@@ -349,24 +431,50 @@ export function App() {
                         ))
                       )}
                     </select>
-                    <p className="text-[10px] text-slate-400 mt-1">Projeto onde a branch e o código serão criados</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Projeto onde a branch será criada</p>
                   </div>
 
-                  <div className="md:col-span-3">
-                    <Button
-                      onClick={handleStartTask}
-                      disabled={isLoading || !cardId || !selectedRepo}
-                      className="w-full h-11 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 font-semibold shadow-lg shadow-blue-900/30 text-white rounded-lg"
-                    >
-                      <Play className="w-4 h-4 fill-current" />
-                      Iniciar Execução
-                    </Button>
-                    <p className="text-[10px] text-transparent mt-1 select-none">ação</p>
+                  <div className="md:col-span-4">
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 mb-1.5">
+                      <Clock className="w-3.5 h-3.5 text-blue-400" />
+                      Modo de Execução
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1 rounded-lg border border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => setExecutionMode('SEQUENTIAL')}
+                        className={`flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-md transition-all ${
+                          executionMode === 'SEQUENTIAL'
+                            ? 'bg-blue-600 text-white shadow'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <ListOrdered className="w-3.5 h-3.5" />
+                        Em Fila
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExecutionMode('CONCURRENT')}
+                        className={`flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-md transition-all ${
+                          executionMode === 'CONCURRENT'
+                            ? 'bg-blue-600 text-white shadow'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Zap className="w-3.5 h-3.5 text-amber-400" />
+                        Concomitante
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {executionMode === 'SEQUENTIAL'
+                        ? 'Roda ordenado, aguardando tarefa anterior'
+                        : 'Dispara imediatamente em paralelo'}
+                    </p>
                   </div>
                 </div>
 
-                {/* Instruções Adicionais em Markdown */}
-                <div className="mt-4 pt-4 border-t border-slate-800">
+                {/* Textarea Ampliado de Instruções em Markdown (Issue #9) */}
+                <div className="pt-3 border-t border-slate-800">
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
                       <FileText className="w-3.5 h-3.5 text-blue-400" />
@@ -377,14 +485,14 @@ export function App() {
                     </span>
                   </div>
                   <textarea
-                    rows={3}
+                    rows={6}
                     placeholder="Adicione informações complementares que não estão no card (ex.: regras de negócio específicas, bibliotecas mandatórias, restrições ou exemplos)..."
                     value={customInstructions}
                     onChange={(e) => setCustomInstructions(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-lg text-xs text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y shadow-inner leading-relaxed"
+                    className="w-full px-3.5 py-3 bg-slate-950 border border-slate-700/80 rounded-lg text-xs text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y shadow-inner leading-relaxed min-h-[140px]"
                   />
                   <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
-                    <span>💡 Suporta formatação livre em Markdown (listas, seções, blocos de código).</span>
+                    <span>💡 Suporta sintaxe Markdown (listas, seções, blocos de código).</span>
                     {customInstructions && (
                       <button
                         type="button"
@@ -396,8 +504,150 @@ export function App() {
                     )}
                   </div>
                 </div>
+
+                <div className="pt-2">
+                  <Button
+                    onClick={handleStartTask}
+                    disabled={isLoading || !cardId || !selectedRepo}
+                    className="w-full h-11 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 font-semibold shadow-lg shadow-blue-900/30 text-white rounded-lg text-sm"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    Iniciar Execução
+                  </Button>
+                </div>
               </CardContent>
             </Card>
+
+            {/* Fila Viva de Tarefas em Andamento */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <ListOrdered className="w-4 h-4 text-blue-400" />
+                    Tarefas em Fila e em Andamento ({activeTasks.length})
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Acompanhe as tarefas pendentes de processamento. Ao serem concluídas ou reprovadas, são movidas para o Histórico.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={loadActiveTasks} className="text-xs border-slate-700">
+                  <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                  Atualizar Fila
+                </Button>
+              </div>
+
+              {activeTasks.length === 0 ? (
+                <Card className="bg-slate-900/40 border-slate-800 text-center py-8 text-slate-500 text-xs">
+                  Nenhuma tarefa na fila ou em execução no momento. Use o formulário acima para inserir tarefas.
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {activeTasks.map((t) => (
+                    <Card
+                      key={t.id}
+                      className="bg-slate-900/70 border-slate-800 hover:border-slate-700 p-4 transition-all flex flex-col justify-between"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-sm text-white flex items-center gap-1.5">
+                            <Hash className="w-3.5 h-3.5 text-blue-400" />
+                            Card #{t.cardId}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                              {t.executionMode === 'SEQUENTIAL' ? '🔄 Sequencial' : '⚡ Concomitante'}
+                            </span>
+                            <Badge
+                              variant={
+                                t.status === 'WAITING_APPROVAL'
+                                  ? 'warning'
+                                  : t.status === 'QUEUED'
+                                  ? 'secondary'
+                                  : 'success'
+                              }
+                            >
+                              {t.status}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-slate-300 font-medium line-clamp-1">
+                          {t.cardTitle}
+                        </p>
+                        <p className="text-[11px] text-slate-400 flex items-center gap-1">
+                          <FolderGit2 className="w-3 h-3 text-slate-500" />
+                          {t.repository?.name || 'Local'}
+                        </p>
+                      </div>
+
+                      <div className="pt-3 mt-3 border-t border-slate-800/80 flex items-center justify-between">
+                        <span className="text-[10px] text-slate-500">
+                          Criada em: {new Date(t.createdAt).toLocaleDateString('pt-BR')}
+                        </span>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setCurrentTaskId(t.id);
+                            if (t.diagnosticPlan) setDiagnostic(t.diagnosticPlan);
+                            setTaskStatus(t.status);
+                            setActiveTab('execution');
+                          }}
+                          className="h-8 px-3 text-xs bg-slate-800 hover:bg-blue-600 hover:text-white transition-colors"
+                        >
+                          Ver Execução <ArrowRight className="w-3 h-3 ml-1" />
+                        </Button>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* ABA 2: EXECUÇÃO DE TAREFA */}
+        {/* ========================================================================= */}
+        {activeTab === 'execution' && (
+          <div className="space-y-6">
+            {/* Header da Execução Ativa */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Cpu className="w-5 h-5 text-blue-400" />
+                  Monitor de Execução em Tempo Real
+                </h2>
+                <p className="text-xs text-slate-400">
+                  {currentTaskId
+                    ? `Acompanhando Tarefa ID: ${currentTaskId}`
+                    : 'Nenhuma tarefa selecionada no momento. Selecione uma tarefa na fila ou inicie uma nova.'}
+                </p>
+              </div>
+
+              {activeTasks.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Alternar Tarefa:</span>
+                  <select
+                    value={currentTaskId || ''}
+                    onChange={(e) => {
+                      const selected = activeTasks.find((t) => t.id === e.target.value);
+                      if (selected) {
+                        setCurrentTaskId(selected.id);
+                        if (selected.diagnosticPlan) setDiagnostic(selected.diagnosticPlan);
+                        setTaskStatus(selected.status);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-md text-xs text-slate-200"
+                  >
+                    {activeTasks.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        Card #{t.cardId} ({t.status})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
 
             {/* Sucesso / PR Aberto */}
             {prUrl && (
@@ -421,18 +671,19 @@ export function App() {
               </div>
             )}
 
-            {/* Visualizador de Diagnóstico para Aprovação Humana */}
+            {/* Visualizador de Diagnóstico para Aprovação Humana e Refinamento */}
             {diagnostic && currentTaskId && taskStatus === 'WAITING_APPROVAL' && (
               <DiagnosticViewer
                 diagnostic={diagnostic}
                 taskId={currentTaskId}
                 onApprove={handleApprove}
                 onReject={handleReject}
+                onRefine={handleRefine}
               />
             )}
 
             {/* Terminal em Tempo Real */}
-            <div className="h-[460px]">
+            <div className="h-[480px]">
               <TerminalLog
                 logs={logs}
                 status={taskStatus}
@@ -442,16 +693,19 @@ export function App() {
           </div>
         )}
 
+        {/* ========================================================================= */}
+        {/* ABA 3: REPOSITÓRIOS */}
+        {/* ========================================================================= */}
         {activeTab === 'repos' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   <FolderGit2 className="w-5 h-5 text-blue-400" />
-                  Repositórios Locais Mapeados
+                  Repositórios Mapeados
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Estrutura analisada e persistida em cache local no PostgreSQL.
+                  Projetos locais identificados em <code className="text-blue-400">HOST_REPOS_PATH</code>.
                 </p>
               </div>
               <Button size="sm" variant="outline" onClick={loadRepositories}>
@@ -472,6 +726,9 @@ export function App() {
           </div>
         )}
 
+        {/* ========================================================================= */}
+        {/* ABA 4: HISTÓRICO */}
+        {/* ========================================================================= */}
         {activeTab === 'history' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -481,7 +738,7 @@ export function App() {
                   Histórico de Execuções
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Tarefas processadas pelo agente e PRs gerados.
+                  Tarefas processadas pelo agente e PRs gerados (incluindo reprovadas e arquivadas).
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -527,6 +784,7 @@ export function App() {
                       <th className="px-4 py-3">Data</th>
                       <th className="px-4 py-3">Card</th>
                       <th className="px-4 py-3">Repositório</th>
+                      <th className="px-4 py-3">Modo</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Pull Request</th>
                       <th className="px-4 py-3 text-right">Ações</th>
@@ -535,7 +793,7 @@ export function App() {
                   <tbody className="divide-y divide-slate-800/60">
                     {history.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
                           {showAllHistory
                             ? 'Nenhuma tarefa encontrada no histórico.'
                             : 'Nenhuma tarefa ativa no momento.'}
@@ -559,17 +817,22 @@ export function App() {
                             {t.repository?.name || 'Local'}
                           </td>
                           <td className="px-4 py-3">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                              {t.executionMode === 'SEQUENTIAL' ? 'Sequencial' : 'Concomitante'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <Badge
                                 variant={
                                   t.status === 'COMPLETED'
                                     ? 'success'
-                                    : t.status === 'FAILED'
+                                    : t.status === 'FAILED' || t.status === 'REJECTED'
                                     ? 'destructive'
                                     : 'warning'
                                 }
                               >
-                                {t.status}
+                                {t.status === 'REJECTED' ? 'REPROVADO' : t.status}
                               </Badge>
                               {t.isArchived && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">

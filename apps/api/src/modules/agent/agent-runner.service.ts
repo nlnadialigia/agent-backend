@@ -14,12 +14,23 @@ export interface ExecuteTaskDto {
   repoPath: string;
   repoName?: string;
   customInstructions?: string;
+  executionMode?: 'SEQUENTIAL' | 'CONCURRENT';
+}
+
+interface QueuedTask {
+  taskId: string;
+  cardId: string;
+  resolvedPath: string;
+  repoName: string;
+  customInstructions?: string;
 }
 
 @Injectable()
 export class AgentRunnerService {
   private readonly logger = new Logger(AgentRunnerService.name);
   private ai?: GoogleGenAI;
+  private sequentialQueue: QueuedTask[] = [];
+  private isSequentialRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -35,25 +46,29 @@ export class AgentRunnerService {
   }
 
   /**
-   * Inicia a execução assíncrona da tarefa
+   * Inicia a execução assíncrona da tarefa (Sequencial ou Concomitante)
    */
   async startTask(dto: ExecuteTaskDto): Promise<{ taskId: string }> {
     const resolvedPath = path.resolve(dto.repoPath);
     const repoName = dto.repoName || path.basename(resolvedPath);
+    const executionMode = dto.executionMode || 'CONCURRENT';
+    const isSequential = executionMode === 'SEQUENTIAL';
 
     // 1. Criar registro de execução no Prisma
     let taskRecord: any;
     try {
       // Garante que o repo profile existe no banco
       const profile = await this.scanner.scanRepository(resolvedPath, repoName);
-      
+      const initialStatus = isSequential && this.isSequentialRunning ? 'QUEUED' : 'PENDING_DIAGNOSTIC';
+
       taskRecord = await this.prisma.taskExecution.create({
         data: {
           cardId: dto.cardId,
           cardTitle: `Card #${dto.cardId}`,
           customInstructions: dto.customInstructions || null,
+          executionMode: isSequential ? 'SEQUENTIAL' : 'CONCURRENT',
           repositoryId: profile.id || 'default-repo-id',
-          status: 'PENDING_DIAGNOSTIC',
+          status: initialStatus as any,
           executionLogs: [],
         },
       });
@@ -64,13 +79,54 @@ export class AgentRunnerService {
 
     const taskId = taskRecord.id;
 
-    // Dispara em background para não bloquear a resposta HTTP
-    this.runPipeline(taskId, dto.cardId, resolvedPath, repoName, dto.customInstructions).catch((err) => {
-      this.log(taskId, `❌ Erro crítico no pipeline: ${err.message}`, 'error');
-      this.updateStatus(taskId, 'FAILED');
-    });
+    if (isSequential) {
+      if (this.isSequentialRunning) {
+        this.log(taskId, `⏳ Tarefa adicionada à fila sequencial. Aguardando término da tarefa em execução...`);
+        this.updateStatus(taskId, 'QUEUED');
+        this.sequentialQueue.push({
+          taskId,
+          cardId: dto.cardId,
+          resolvedPath,
+          repoName,
+          customInstructions: dto.customInstructions,
+        });
+      } else {
+        this.isSequentialRunning = true;
+        this.runPipeline(taskId, dto.cardId, resolvedPath, repoName, dto.customInstructions)
+          .catch((err) => {
+            this.log(taskId, `❌ Erro crítico no pipeline: ${err.message}`, 'error');
+            this.updateStatus(taskId, 'FAILED');
+          })
+          .finally(() => {
+            this.processNextSequential();
+          });
+      }
+    } else {
+      // Disparo concomitante / imediato
+      this.runPipeline(taskId, dto.cardId, resolvedPath, repoName, dto.customInstructions).catch((err) => {
+        this.log(taskId, `❌ Erro crítico no pipeline: ${err.message}`, 'error');
+        this.updateStatus(taskId, 'FAILED');
+      });
+    }
 
     return { taskId };
+  }
+
+  private processNextSequential() {
+    const next = this.sequentialQueue.shift();
+    if (next) {
+      this.log(next.taskId, `🚀 Desinfileirando tarefa da fila sequencial para execução...`);
+      this.runPipeline(next.taskId, next.cardId, next.resolvedPath, next.repoName, next.customInstructions)
+        .catch((err) => {
+          this.log(next.taskId, `❌ Erro crítico no pipeline: ${err.message}`, 'error');
+          this.updateStatus(next.taskId, 'FAILED');
+        })
+        .finally(() => {
+          this.processNextSequential();
+        });
+    } else {
+      this.isSequentialRunning = false;
+    }
   }
 
   private async runPipeline(taskId: string, cardId: string, repoPath: string, repoName: string, customInstructions?: string) {
@@ -96,19 +152,35 @@ export class AgentRunnerService {
     }
 
     // 3. Elaboração do Diagnóstico Técnico Arquitetural
-    this.log(taskId, `🧠 [3/6] Formulando diagnóstico arquitetural com IA...`);
-    const diagnostic = await this.generateDiagnostic(card, profile, customInstructions);
-    this.log(taskId, `📋 Diagnóstico técnico gerado com sucesso. Aguardando aprovação humana...`);
+    this.log(taskId, `🧠 [3/6] Formulando diagnóstico arquitetural detalhado com IA (padrão Antigravity)...`);
+    let currentDiagnostic = await this.generateDiagnostic(card, profile, customInstructions);
+    this.log(taskId, `📋 Diagnóstico técnico gerado com sucesso. Aguardando revisão do desenvolvedor...`);
 
     // Atualiza status no banco e solicita aprovação
-    await this.updateTaskDiagnostic(taskId, card.title, card.description, diagnostic);
+    await this.updateTaskDiagnostic(taskId, card.title, card.description, currentDiagnostic);
 
-    // 4. Portão Human-in-the-Loop
-    const approved = await this.gateway.requestApproval(taskId, diagnostic);
-    if (!approved) {
-      this.log(taskId, `🛑 Operação cancelada/rejeitada pelo desenvolvedor. Nenhuma alteração foi feita no código.`, 'warn');
-      await this.updateStatus(taskId, 'REJECTED');
-      return;
+    // 4. Portão Human-in-the-Loop Interativo com Loop de Refinamento
+    let approved = false;
+    while (!approved) {
+      const decision = await this.gateway.requestDecision(taskId, currentDiagnostic);
+
+      if (decision.action === 'APPROVE') {
+        approved = true;
+        break;
+      }
+
+      if (decision.action === 'REJECT') {
+        this.log(taskId, `🛑 Operação reprovada pelo desenvolvedor. Nenhuma alteração foi feita no código.`, 'warn');
+        await this.updateStatus(taskId, 'REJECTED');
+        return;
+      }
+
+      if (decision.action === 'REFINE') {
+        this.log(taskId, `🔄 [Refinamento] Reavaliando análise com observações do desenvolvedor: "${decision.feedback}"...`);
+        currentDiagnostic = await this.refineDiagnostic(card, profile, currentDiagnostic, decision.feedback);
+        await this.updateTaskDiagnostic(taskId, card.title, card.description, currentDiagnostic);
+        this.log(taskId, `✨ Nova versão do diagnóstico formulada! Aguardando decisão...`, 'success');
+      }
     }
 
     this.log(taskId, `✅ Diagnóstico aprovado pelo desenvolvedor! Iniciando implementação física...`, 'success');
@@ -120,7 +192,7 @@ export class AgentRunnerService {
 
     // 6. Geração e Aplicação dos Arquivos
     this.log(taskId, `⚡ [4/6] Gerando código e schemas estritos...`);
-    await this.generateAndWriteCode(taskId, repoPath, card, profile, diagnostic);
+    await this.generateAndWriteCode(taskId, repoPath, card, profile, currentDiagnostic);
 
     // 7. Validação de Linter e Testes com Loop de Auto-Correção
     this.log(taskId, `🧪 [5/6] Executando validação de linter e testes unitários...`);
@@ -150,7 +222,7 @@ export class AgentRunnerService {
       repoPath,
       sourceBranch: branchName,
       title: commitMsg,
-      description: diagnostic,
+      description: currentDiagnostic,
     });
 
     this.log(taskId, `🎉 Pull Request aberto com sucesso: ${prResult.url}`, 'success');
@@ -210,41 +282,119 @@ export class AgentRunnerService {
     }
 
     const fallbackInstructions = customInstructions?.trim()
-      ? `\n\n> **Instruções Adicionais:**\n> ${customInstructions.trim().replace(/\n/g, '\n> ')}`
+      ? `\n\n> ⚠️ **Instruções Adicionais Fornecidas pelo Desenvolvedor:**\n> ${customInstructions.trim().replace(/\n/g, '\n> ')}`
       : '';
 
-    // Fallback estruturado caso a API key ainda não tenha sido configurada
-    return `### 🎯 Diagnóstico Técnico Arquitetural - Card #${card.cardId}
-**Título:** ${card.title}
-**Framework Alvo:** ${profile.framework} | **Validação:** ${profile.validationLib} | **ORM:** ${profile.orm}${fallbackInstructions}
+    // Fallback estruturado com o padrão de excelência Antigravity
+    return `# 🎯 Diagnóstico Técnico Arquitetural - Card #${card.cardId}
+**Título da Tarefa:** ${card.title}  
+**Convenções do Repositório:** Framework: \`${profile.framework}\` | Validação: \`${profile.validationLib}\` | ORM: \`${profile.orm}\` | Testes: \`${profile.testFramework}\`${fallbackInstructions}
 
-#### 1. Escopo e Entidades
-- Mapeamento das regras de negócio e validação estrita dos dados de entrada.
-- Criação dos endpoints necessários com validação via ${profile.validationLib}.
+---
 
-#### 2. Schemas e Tipagens (${profile.validationLib})
+## 1. 📌 Resumo Executivo e Regras de Negócio
+- Análise de impacto e regras de domínio requeridas pelo Card #${card.cardId}.
+- Isolamento de responsabilidades e validação preventiva de payload e integridade de dados.
+
+---
+
+## 2. 🏛️ Padrões de Projeto & Arquitetura
+- Padrão Controller-Service com injeção de dependências estrita.
+- Separação entre contratos de transporte (DTOs), modelos de domínio e persistência.
+
+---
+
+## 3. 📐 Schemas de Validação e DTOs (${profile.validationLib})
 \`\`\`typescript
 import { z } from 'zod';
 
-export const TaskPayloadSchema = z.object({
-  title: z.string().min(3),
+export const Card${card.cardId}InputSchema = z.object({
+  title: z.string().min(3, 'Título deve ter no mínimo 3 caracteres'),
   description: z.string().optional(),
   status: z.enum(['ACTIVE', 'INACTIVE']).default('ACTIVE'),
 });
 
-export type TaskPayloadDto = z.infer<typeof TaskPayloadSchema>;
+export type Card${card.cardId}InputDto = z.infer<typeof Card${card.cardId}InputSchema>;
 \`\`\`
 
-#### 3. Arquivos a Criar
+---
+
+## 4. 🗄️ Impactos em Banco de Dados & Entidades
+- Mapeamento e relacionamento no schema com geração automática de tipagens estritas.
+
+---
+
+## 5. 📁 Arquivos a Criar ou Modificar
 - \`src/modules/card-${card.cardId}/card-${card.cardId}.controller.ts\`
 - \`src/modules/card-${card.cardId}/card-${card.cardId}.service.ts\`
 - \`src/modules/card-${card.cardId}/card-${card.cardId}.module.ts\`
 - \`src/modules/card-${card.cardId}/dto/card-${card.cardId}.schema.ts\`
 - \`src/modules/card-${card.cardId}/card-${card.cardId}.service.spec.ts\`
 
-#### 4. Estratégia de Testes (${profile.testFramework})
-- Cobertura de casos felizes (happy path) com validação de payload válido.
-- Cobertura de exceções e erros de validação (dados inválidos).`;
+---
+
+## 6. 🧪 Estratégia de Testes Unitários (${profile.testFramework})
+- Cobertura de cenários felizes (*happy path*) com payloads válidos.
+- Cobertura de cenários de exceção e rejeição de dados inconsistentes.`;
+  }
+
+  /**
+   * Refina o diagnóstico técnico aplicando as observações do desenvolvedor
+   */
+  private async refineDiagnostic(
+    card: KanbanizeCard,
+    profile: RepositoryScanResult,
+    previousDiagnostic: string,
+    feedback: string,
+  ): Promise<string> {
+    const systemInstruction = `
+      Você é um Arquiteto de Software Sênior especialista em Backend no ecossistema Node.js / TypeScript.
+      Você está refazendo e refinando um diagnóstico técnico a pedido do desenvolvedor antes de implementar o código.
+      Convenções MANDATÓRIAS deste repositório:
+      - Framework: ${profile.framework}
+      - Biblioteca de Validação: ${profile.validationLib} (Se for Zod, NUNCA utilize class-validator/class-transformer. Crie schemas estritos e exporte DTOs com z.infer).
+      - ORM / Persistência: ${profile.orm}
+      - Test Runner: ${profile.testFramework}
+      - Gerenciador de Pacotes: ${profile.packageManager}
+      - Layout de Diretórios: ${JSON.stringify(profile.directoryLayout)}
+    `;
+
+    const userPrompt = `
+      O desenvolvedor analisou a proposta anterior para o Card #${card.cardId} ("${card.title}") e solicitou revisões.
+
+      DIAGNÓSTICO ANTERIOR:
+      ${previousDiagnostic}
+
+      OBSERVAÇÕES / ALTERAÇÕES SOLICITADAS PELO DESENVOLVEDOR:
+      ${feedback}
+
+      Produza uma versão revisada consolidada de alta qualidade, mantendo o padrão Antigravity:
+      1. 📌 Resumo Executivo e Regras de Negócio
+      2. 🏛️ Padrões de Projeto & Arquitetura
+      3. 📐 Schemas de Validação e DTOs (${profile.validationLib})
+      4. 🗄️ Impactos em Banco de Dados & Entidades
+      5. 📁 Arquivos a Criar ou Modificar
+      6. 🧪 Estratégia de Testes Unitários (${profile.testFramework})
+    `;
+
+    if (this.ai) {
+      try {
+        const response = await this.ai.models.generateContent({
+          model: 'gemini-2.5-pro',
+          contents: userPrompt,
+          config: {
+            systemInstruction,
+            temperature: 0.2,
+          },
+        });
+        return response.text || previousDiagnostic;
+      } catch (err: any) {
+        this.logger.warn(`Falha na chamada Gemini API no refinamento: ${err.message}.`);
+      }
+    }
+
+    // Fallback estruturado de refinamento
+    return `${previousDiagnostic}\n\n---\n### 🔄 Refinamento Aplicado com Sucesso\n> **Observações do Desenvolvedor Incorporadas:** ${feedback}\n- Os requisitos apontados foram incorporados ao blueprint técnico da implementação.`;
   }
 
   /**

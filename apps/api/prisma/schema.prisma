@@ -40,21 +40,28 @@ model TaskExecution {
   cardTitle       String
   cardDescription String?
   customInstructions String?        @db.Text
-  repositoryId    String
-  repository      RepositoryProfile @relation(fields: [repositoryId], references: [id])
+  executionMode      ExecutionMode     @default(CONCURRENT)
+  repositoryId       String
+  repository         RepositoryProfile @relation(fields: [repositoryId], references: [id])
   
-  status          TaskStatus        @default(PENDING_DIAGNOSTIC)
-  diagnosticPlan  String?           @db.Text
-  branchName      String?
-  pullRequestUrl  String?
-  executionLogs   Json?             // Array de logs da execução
-  isArchived      Boolean           @default(false)
+  status             TaskStatus        @default(PENDING_DIAGNOSTIC)
+  diagnosticPlan     String?           @db.Text
+  branchName         String?
+  pullRequestUrl     String?
+  executionLogs      Json?             // Array de logs da execução
+  isArchived         Boolean           @default(false)
   
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+}
+
+enum ExecutionMode {
+  SEQUENTIAL
+  CONCURRENT
 }
 
 enum TaskStatus {
+  QUEUED
   PENDING_DIAGNOSTIC
   WAITING_APPROVAL
   IMPLEMENTING
