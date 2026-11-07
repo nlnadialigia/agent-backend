@@ -1,0 +1,22 @@
+#!/bin/sh
+
+# Hook para bloquear push direto na branch main
+protected_branch="main"
+current_branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+while read local_ref local_oid remote_ref remote_oid
+do
+  if [ "$remote_ref" = "refs/heads/$protected_branch" ]; then
+    echo "=========================================================="
+    echo " 🛑 [BLOQUEIO DE SEGURANÇA] PUSH DIRETO NA MAIN RECUSADO!"
+    echo "=========================================================="
+    echo " É proibido enviar commits diretamente para a branch '$protected_branch'."
+    echo " Crie uma branch de funcionalidade e abra um Pull Request:"
+    echo "   git checkout -b feat/minha-alteracao"
+    echo "   git push -u origin feat/minha-alteracao"
+    echo "=========================================================="
+    exit 1
+  fi
+done
+
+exit 0

@@ -1,0 +1,50 @@
+name: PR Validation & CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Lint, Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+          run_install: false
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: |
+          pnpm approve-builds --all
+          pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      - name: Lint Verification
+        run: pnpm lint
+
+      - name: Build Backend (NestJS)
+        run: pnpm build:api
+
+      - name: Build Frontend (React / Vite)
+        run: pnpm build:web
+
+      - name: Run Tests
+        run: pnpm test

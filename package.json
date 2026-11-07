@@ -13,7 +13,8 @@
     "db:generate": "pnpm --filter @agent/api prisma:generate",
     "db:studio": "pnpm --filter @agent/api prisma:studio",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
     "typescript": "^5.5.4"
