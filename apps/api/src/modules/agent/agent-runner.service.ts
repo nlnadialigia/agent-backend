@@ -13,6 +13,7 @@ export interface ExecuteTaskDto {
   cardId: string;
   repoPath: string;
   repoName?: string;
+  customInstructions?: string;
 }
 
 @Injectable()
@@ -50,6 +51,7 @@ export class AgentRunnerService {
         data: {
           cardId: dto.cardId,
           cardTitle: `Card #${dto.cardId}`,
+          customInstructions: dto.customInstructions || null,
           repositoryId: profile.id || 'default-repo-id',
           status: 'PENDING_DIAGNOSTIC',
           executionLogs: [],
@@ -63,7 +65,7 @@ export class AgentRunnerService {
     const taskId = taskRecord.id;
 
     // Dispara em background para não bloquear a resposta HTTP
-    this.runPipeline(taskId, dto.cardId, resolvedPath, repoName).catch((err) => {
+    this.runPipeline(taskId, dto.cardId, resolvedPath, repoName, dto.customInstructions).catch((err) => {
       this.log(taskId, `❌ Erro crítico no pipeline: ${err.message}`, 'error');
       this.updateStatus(taskId, 'FAILED');
     });
@@ -71,9 +73,13 @@ export class AgentRunnerService {
     return { taskId };
   }
 
-  private async runPipeline(taskId: string, cardId: string, repoPath: string, repoName: string) {
+  private async runPipeline(taskId: string, cardId: string, repoPath: string, repoName: string, customInstructions?: string) {
     this.log(taskId, `🚀 Iniciando processamento do Card #${cardId} no repositório '${repoName}'...`);
     this.updateStatus(taskId, 'PENDING_DIAGNOSTIC');
+
+    if (customInstructions?.trim()) {
+      this.log(taskId, `📝 Instruções adicionais em Markdown recebidas.`);
+    }
 
     // 1. Obter informações do card no Kanbanize
     this.log(taskId, `📥 [1/6] Buscando informações do card no Kanbanize...`);
@@ -91,7 +97,7 @@ export class AgentRunnerService {
 
     // 3. Elaboração do Diagnóstico Técnico Arquitetural
     this.log(taskId, `🧠 [3/6] Formulando diagnóstico arquitetural com IA...`);
-    const diagnostic = await this.generateDiagnostic(card, profile);
+    const diagnostic = await this.generateDiagnostic(card, profile, customInstructions);
     this.log(taskId, `📋 Diagnóstico técnico gerado com sucesso. Aguardando aprovação humana...`);
 
     // Atualiza status no banco e solicita aprovação
@@ -157,7 +163,7 @@ export class AgentRunnerService {
   /**
    * Gera o blueprint técnico do card respeitando convenções do repositório
    */
-  private async generateDiagnostic(card: KanbanizeCard, profile: RepositoryScanResult): Promise<string> {
+  private async generateDiagnostic(card: KanbanizeCard, profile: RepositoryScanResult, customInstructions?: string): Promise<string> {
     const systemInstruction = `
       Você é um Arquiteto de Software Sênior especialista em Backend no ecossistema Node.js / TypeScript.
       Convenções MANDATÓRIAS deste repositório:
@@ -169,14 +175,19 @@ export class AgentRunnerService {
       - Layout de Diretórios: ${JSON.stringify(profile.directoryLayout)}
     `;
 
+    const customInstructionsBlock = customInstructions?.trim()
+      ? `\n==================================================\n⚠️ INSTRUÇÕES ADICIONAIS DO DESENVOLVEDOR (MARKDOWN):\n${customInstructions.trim()}\n==================================================\n`
+      : '';
+
     const userPrompt = `
       Elabore o diagnóstico técnico arquitetural para o seguinte card do Kanbanize:
       ID: #${card.cardId}
       Título: ${card.title}
       Descrição: ${card.description}
+      ${customInstructionsBlock}
 
       A estrutura da sua resposta deve conter:
-      1. 🎯 Escopo e Regras de Negócio de Backend
+      1. 🎯 Escopo e Regras de Negócio de Backend (incorporando as instruções adicionais, se houver)
       2. 📐 Schemas de Validação e DTOs (${profile.validationLib})
       3. 📁 Lista de Arquivos a Criar ou Modificar (módulos, controllers, services, repositories)
       4. 🧪 Estratégia de Testes Unitários (${profile.testFramework})
@@ -198,10 +209,14 @@ export class AgentRunnerService {
       }
     }
 
+    const fallbackInstructions = customInstructions?.trim()
+      ? `\n\n> **Instruções Adicionais:**\n> ${customInstructions.trim().replace(/\n/g, '\n> ')}`
+      : '';
+
     // Fallback estruturado caso a API key ainda não tenha sido configurada
     return `### 🎯 Diagnóstico Técnico Arquitetural - Card #${card.cardId}
 **Título:** ${card.title}
-**Framework Alvo:** ${profile.framework} | **Validação:** ${profile.validationLib} | **ORM:** ${profile.orm}
+**Framework Alvo:** ${profile.framework} | **Validação:** ${profile.validationLib} | **ORM:** ${profile.orm}${fallbackInstructions}
 
 #### 1. Escopo e Entidades
 - Mapeamento das regras de negócio e validação estrita dos dados de entrada.

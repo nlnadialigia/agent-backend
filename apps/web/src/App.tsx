@@ -4,7 +4,7 @@ import { TerminalLog, LogEntry } from './components/TerminalLog';
 import { DiagnosticViewer } from './components/DiagnosticViewer';
 import { RepositoryCard, RepositoryData } from './components/RepositoryCard';
 import { Button } from './components/ui/button';
-import { Card, CardContent } from './components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './components/ui/card';
 import { Badge } from './components/ui/badge';
 import {
   Play,
@@ -14,11 +14,14 @@ import {
   Wifi,
   WifiOff,
   History,
-  CheckCircle
+  CheckCircle,
+  Hash,
+  FileText
 } from 'lucide-react';
 
 export function App() {
   const [cardId, setCardId] = useState('');
+  const [customInstructions, setCustomInstructions] = useState('');
   const [selectedRepo, setSelectedRepo] = useState<string>('');
   const [repositories, setRepositories] = useState<RepositoryData[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
@@ -128,6 +131,7 @@ export function App() {
         cardId: cardId.trim(),
         repoPath: selectedRepo,
         repoName: selectedRepoObj?.name,
+        customInstructions: customInstructions.trim() || undefined,
       });
 
       setCurrentTaskId(res.data.taskId);
@@ -261,30 +265,46 @@ export function App() {
         {activeTab === 'agent' && (
           <div className="space-y-6">
             {/* Input Bar */}
-            <Card className="bg-slate-900/60 border-slate-800 shadow-xl">
-              <CardContent className="p-5">
+            <Card className="bg-slate-900/80 border-slate-700/80 shadow-2xl">
+              <CardHeader className="pb-3 border-b border-slate-800">
+                <div className="flex items-center space-x-2">
+                  <div className="p-1.5 bg-blue-500/20 text-blue-400 rounded-md">
+                    <Hash className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-sm font-bold text-white">Disparar Execução de Tarefa</CardTitle>
+                    <CardDescription className="text-xs text-slate-400">
+                      Informe o ID do card para o agente analisar os requisitos e estruturar a solução no repositório.
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-5 pt-4">
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                   <div className="md:col-span-3">
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 mb-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                       Card ID (Kanbanize)
                     </label>
                     <input
                       type="text"
-                      placeholder="Ex.: 12345"
+                      placeholder="Ex.: 1001, 12345"
                       value={cardId}
                       onChange={(e) => setCardId(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-md text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-inner"
                     />
+                    <p className="text-[10px] text-slate-400 mt-1">Número de identificação do card</p>
                   </div>
 
                   <div className="md:col-span-6">
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 mb-1.5">
+                      <FolderGit2 className="w-3.5 h-3.5 text-blue-400" />
                       Repositório Vinculado
                     </label>
                     <select
                       value={selectedRepo}
                       onChange={(e) => setSelectedRepo(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-md text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
                       {repositories.length === 0 ? (
                         <option value="">Nenhum repositório local detectado</option>
@@ -296,17 +316,51 @@ export function App() {
                         ))
                       )}
                     </select>
+                    <p className="text-[10px] text-slate-400 mt-1">Projeto onde a branch e o código serão criados</p>
                   </div>
 
                   <div className="md:col-span-3">
                     <Button
                       onClick={handleStartTask}
                       disabled={isLoading || !cardId || !selectedRepo}
-                      className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 font-semibold"
+                      className="w-full h-11 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 font-semibold shadow-lg shadow-blue-900/30 text-white rounded-lg"
                     >
                       <Play className="w-4 h-4 fill-current" />
                       Iniciar Execução
                     </Button>
+                    <p className="text-[10px] text-transparent mt-1 select-none">ação</p>
+                  </div>
+                </div>
+
+                {/* Instruções Adicionais em Markdown */}
+                <div className="mt-4 pt-4 border-t border-slate-800">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
+                      <FileText className="w-3.5 h-3.5 text-blue-400" />
+                      Instruções Adicionais / Contexto Manual (Markdown opcional)
+                    </label>
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      {customInstructions.length} caracteres
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    placeholder="Adicione informações complementares que não estão no card (ex.: regras de negócio específicas, bibliotecas mandatórias, restrições ou exemplos)..."
+                    value={customInstructions}
+                    onChange={(e) => setCustomInstructions(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-lg text-xs text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y shadow-inner leading-relaxed"
+                  />
+                  <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                    <span>💡 Suporta formatação livre em Markdown (listas, seções, blocos de código).</span>
+                    {customInstructions && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomInstructions('')}
+                        className="text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        Limpar texto
+                      </button>
+                    )}
                   </div>
                 </div>
               </CardContent>
