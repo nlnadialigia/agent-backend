@@ -15,11 +15,13 @@ import {
   WifiOff,
   History,
   CheckCircle,
-  Hash
+  Hash,
+  FileText
 } from 'lucide-react';
 
 export function App() {
   const [cardId, setCardId] = useState('');
+  const [customInstructions, setCustomInstructions] = useState('');
   const [selectedRepo, setSelectedRepo] = useState<string>('');
   const [repositories, setRepositories] = useState<RepositoryData[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
@@ -129,6 +131,7 @@ export function App() {
         cardId: cardId.trim(),
         repoPath: selectedRepo,
         repoName: selectedRepoObj?.name,
+        customInstructions: customInstructions.trim() || undefined,
       });
 
       setCurrentTaskId(res.data.taskId);
@@ -326,6 +329,38 @@ export function App() {
                       Iniciar Execução
                     </Button>
                     <p className="text-[10px] text-transparent mt-1 select-none">ação</p>
+                  </div>
+                </div>
+
+                {/* Instruções Adicionais em Markdown */}
+                <div className="mt-4 pt-4 border-t border-slate-800">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
+                      <FileText className="w-3.5 h-3.5 text-blue-400" />
+                      Instruções Adicionais / Contexto Manual (Markdown opcional)
+                    </label>
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      {customInstructions.length} caracteres
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    placeholder="Adicione informações complementares que não estão no card (ex.: regras de negócio específicas, bibliotecas mandatórias, restrições ou exemplos)..."
+                    value={customInstructions}
+                    onChange={(e) => setCustomInstructions(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700/80 rounded-lg text-xs text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y shadow-inner leading-relaxed"
+                  />
+                  <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                    <span>💡 Suporta formatação livre em Markdown (listas, seções, blocos de código).</span>
+                    {customInstructions && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomInstructions('')}
+                        className="text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        Limpar texto
+                      </button>
+                    )}
                   </div>
                 </div>
               </CardContent>

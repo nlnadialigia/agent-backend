@@ -39,6 +39,7 @@ model TaskExecution {
   cardId          String
   cardTitle       String
   cardDescription String?
+  customInstructions String?        @db.Text
   repositoryId    String
   repository      RepositoryProfile @relation(fields: [repositoryId], references: [id])
   
