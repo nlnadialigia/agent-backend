@@ -57,12 +57,13 @@ O agente realiza o escaneamento determinístico do repositório vinculado à tar
 
 ---
 
-## 📚 Documentação e Especificações
+## 📚 Documentação e Guias
 
-- [spec_agent_backend.md](./specs-backend/spec_agent_backend.md): Especificação técnica detalhada do agente backend.
-- [requisitos_instalacao_tokens.md](./specs-backend/requisitos_instalacao_tokens.md): Guia de obtenção de credenciais, tokens e comandos de validação.
-- [roadmap_desenvolvimento.md](./specs-backend/roadmap_desenvolvimento.md): Roteiro de fases e critérios de aceite.
-- [spec_web_app.md](./instructions/spec_web_app.md): Especificação técnica da interface web e Docker Compose.
+- [guia_utilizacao.md](./docs/guia_utilizacao.md): **Guia Completo de Utilização** (passo a passo da interface, conexão de repositórios e aprovações).
+- [spec_agent_backend.md](./docs/spec_agent_backend.md): Especificação técnica detalhada do agente backend.
+- [spec_web_app.md](./docs/spec_web_app.md): Especificação técnica da interface web e Docker Compose.
+- [requisitos_instalacao_tokens.md](./docs/requisitos_instalacao_tokens.md): Guia de obtenção de credenciais, tokens e comandos de validação.
+- [roadmap_desenvolvimento.md](./docs/roadmap_desenvolvimento.md): Roteiro de fases e critérios de aceite.
 
 ---
 
