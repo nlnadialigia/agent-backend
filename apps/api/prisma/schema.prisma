@@ -48,6 +48,7 @@ model TaskExecution {
   branchName      String?
   pullRequestUrl  String?
   executionLogs   Json?             // Array de logs da execução
+  isArchived      Boolean           @default(false)
   
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt

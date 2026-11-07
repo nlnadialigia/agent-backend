@@ -16,7 +16,12 @@ import {
   History,
   CheckCircle,
   Hash,
-  FileText
+  FileText,
+  Trash2,
+  Archive,
+  ArchiveRestore,
+  Eye,
+  RefreshCw
 } from 'lucide-react';
 
 export function App() {
@@ -33,6 +38,7 @@ export function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [scanningRepo, setScanningRepo] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const [activeTab, setActiveTab] = useState<'agent' | 'repos' | 'history'>('agent');
 
   // Conexão WebSocket
@@ -108,12 +114,39 @@ export function App() {
     }
   };
 
-  const loadHistory = async () => {
+  const loadHistory = async (includeArchived = showAllHistory) => {
     try {
-      const res = await apiClient.get('/tasks/history');
+      const res = await apiClient.get(`/tasks/history?includeArchived=${includeArchived}`);
       setHistory(res.data);
     } catch (err) {
       console.warn('Erro ao carregar histórico:', err);
+    }
+  };
+
+  const handleToggleHistoryFilter = () => {
+    const nextState = !showAllHistory;
+    setShowAllHistory(nextState);
+    loadHistory(nextState);
+  };
+
+  const handleArchiveTask = async (id: string, cardTitle: string) => {
+    if (!window.confirm(`Deseja arquivar "${cardTitle}"? Ela não será mais exibida na lista de tarefas ativas.`)) {
+      return;
+    }
+    try {
+      await apiClient.patch(`/tasks/${id}/archive`);
+      await loadHistory();
+    } catch (err) {
+      console.error('Erro ao arquivar tarefa:', err);
+    }
+  };
+
+  const handleRestoreTask = async (id: string) => {
+    try {
+      await apiClient.patch(`/tasks/${id}/restore`);
+      await loadHistory();
+    } catch (err) {
+      console.error('Erro ao restaurar tarefa:', err);
     }
   };
 
@@ -451,9 +484,39 @@ export function App() {
                   Tarefas processadas pelo agente e PRs gerados.
                 </p>
               </div>
-              <Button size="sm" variant="outline" onClick={loadHistory}>
-                Atualizar
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={showAllHistory ? 'secondary' : 'outline'}
+                  onClick={handleToggleHistoryFilter}
+                  className={`flex items-center gap-1.5 text-xs ${
+                    showAllHistory
+                      ? 'bg-slate-700 hover:bg-slate-600 text-white border-slate-600'
+                      : 'border-slate-700 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {showAllHistory ? (
+                    <>
+                      <Eye className="w-3.5 h-3.5 text-blue-400" />
+                      Apenas Ativos
+                    </>
+                  ) : (
+                    <>
+                      <Archive className="w-3.5 h-3.5 text-slate-400" />
+                      Mostrar Todos
+                    </>
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => loadHistory()}
+                  className="border-slate-700 text-slate-300 hover:text-white flex items-center gap-1.5 text-xs"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Atualizar
+                </Button>
+              </div>
             </div>
 
             <Card className="bg-slate-900/60 border-slate-800">
@@ -466,20 +529,28 @@ export function App() {
                       <th className="px-4 py-3">Repositório</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Pull Request</th>
+                      <th className="px-4 py-3 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {history.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                          Nenhuma tarefa executada ainda.
+                        <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                          {showAllHistory
+                            ? 'Nenhuma tarefa encontrada no histórico.'
+                            : 'Nenhuma tarefa ativa no momento.'}
                         </td>
                       </tr>
                     ) : (
                       history.map((t) => (
-                        <tr key={t.id} className="hover:bg-slate-800/30">
-                          <td className="px-4 py-3 text-slate-400">
-                            {new Date(t.createdAt).toLocaleString()}
+                        <tr
+                          key={t.id}
+                          className={`hover:bg-slate-800/30 transition-colors ${
+                            t.isArchived ? 'opacity-60 bg-slate-950/40' : ''
+                          }`}
+                        >
+                          <td className="px-4 py-3 text-slate-400 font-mono">
+                            {new Date(t.createdAt).toLocaleDateString('pt-BR')}
                           </td>
                           <td className="px-4 py-3 font-semibold text-white">
                             Card #{t.cardId} - {t.cardTitle}
@@ -488,17 +559,24 @@ export function App() {
                             {t.repository?.name || 'Local'}
                           </td>
                           <td className="px-4 py-3">
-                            <Badge
-                              variant={
-                                t.status === 'COMPLETED'
-                                  ? 'success'
-                                  : t.status === 'FAILED'
-                                  ? 'destructive'
-                                  : 'warning'
-                              }
-                            >
-                              {t.status}
-                            </Badge>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge
+                                variant={
+                                  t.status === 'COMPLETED'
+                                    ? 'success'
+                                    : t.status === 'FAILED'
+                                    ? 'destructive'
+                                    : 'warning'
+                                }
+                              >
+                                {t.status}
+                              </Badge>
+                              {t.isArchived && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                                  Arquivado
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3">
                             {t.pullRequestUrl ? (
@@ -512,6 +590,27 @@ export function App() {
                               </a>
                             ) : (
                               <span className="text-slate-500">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {t.isArchived ? (
+                              <button
+                                onClick={() => handleRestoreTask(t.id)}
+                                title="Restaurar tarefa arquivada"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors"
+                              >
+                                <ArchiveRestore className="w-3.5 h-3.5 text-blue-400" />
+                                Restaurar
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleArchiveTask(t.id, t.cardTitle)}
+                                title="Arquivar esta execução (ocultar da lista padrão)"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded bg-slate-900 hover:bg-red-950/60 text-slate-400 hover:text-red-300 border border-slate-800 hover:border-red-800/60 transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Arquivar
+                              </button>
                             )}
                           </td>
                         </tr>

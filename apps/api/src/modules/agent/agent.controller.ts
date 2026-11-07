@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, Query } from '@nestjs/common';
 import { AgentRunnerService, ExecuteTaskDto } from './agent-runner.service';
 import { AgentGateway } from '../gateway/agent.gateway';
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,15 +26,43 @@ export class AgentController {
   }
 
   @Get('history')
-  async getHistory() {
+  async getHistory(@Query('includeArchived') includeArchived?: string) {
     try {
+      const where = includeArchived === 'true' ? {} : { isArchived: false };
       return await this.prisma.taskExecution.findMany({
+        where,
         orderBy: { createdAt: 'desc' },
         include: { repository: true },
         take: 50,
       });
     } catch {
       return [];
+    }
+  }
+
+  @Patch(':id/archive')
+  async archiveTask(@Param('id') id: string) {
+    try {
+      const updated = await this.prisma.taskExecution.update({
+        where: { id },
+        data: { isArchived: true },
+      });
+      return { success: true, task: updated };
+    } catch (err: any) {
+      return { success: false, message: err.message };
+    }
+  }
+
+  @Patch(':id/restore')
+  async restoreTask(@Param('id') id: string) {
+    try {
+      const updated = await this.prisma.taskExecution.update({
+        where: { id },
+        data: { isArchived: false },
+      });
+      return { success: true, task: updated };
+    } catch (err: any) {
+      return { success: false, message: err.message };
     }
   }
 }
