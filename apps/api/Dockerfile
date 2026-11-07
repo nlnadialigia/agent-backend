@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:lts-alpine AS base
 
 # Instala Git e dependências do sistema
 RUN apk add --no-cache git bash curl openssh openssl && \
